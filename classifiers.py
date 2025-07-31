@@ -24,26 +24,6 @@ import keras.backend as K
 import plotly.subplots as p
 
 
-# class SimpleNN(torch.nn.Module):
-#     def __init__(self, input_size, output_size, num_layers = num_layers, num_neurons=num_neurons, dropout_rate=dropout_rate):
-#         super(SimpleNN, self).__init__()
-#         layers = []
-#         for i in range(num_layers):
-#             in_features = input_size if i == 0 else num_neurons[i - 1]
-#             out_features = num_neurons[i]
-#             layers.append(torch.nn.Linear(in_features, out_features))
-#             layers.append(torch.nn.ReLU())
-#             layers.append(torch.nn.Dropout(dropout_rate))
-#         self.layers = torch.nn.Sequential(*layers)
-#         self.fc_final = torch.nn.Linear(num_neurons[-1], output_size)
-#         self.sigmoid = torch.nn.Sigmoid()
-
-#     def forward(self, x):
-#         x = self.layers(x)
-#         x = self.fc_final(x)
-#         x = self.sigmoid(x)
-#         return x
-
 class NN(keras.Model):
     def __init__(self, input_size, output_size, num_layers, num_neurons, dropout_rate):
         super(NN, self).__init__()
@@ -67,61 +47,18 @@ class NN(keras.Model):
         return x
 
 
-# class EEG_CNN(torch.nn.Module):
-#     def __init__(self, num_channels, num_classes):
-#         super(EEG_CNN, self).__init__()
-
-#         self.conv1 = torch.nn.Conv2d(
-#             num_channels, 64, kernel_size=10, stride=1)
-#         self.relu1 = torch.nn.ReLU()
-#         self.pool1 = torch.nn.MaxPool2d(kernel_size=2, stride=2)
-
-#         self.conv2 = torch.nn.Conv2d(64, 128, kernel_size=10, stride=1)
-#         self.relu2 = torch.nn.ReLU()
-#         self.pool2 = torch.nn.MaxPool2d(kernel_size=2, stride=2)
-
-#         self.flat = torch.nn.Flatten()
-
-#         self.fc1 = torch.nn.Linear(5760, 128)
-#         self.dropout1 = torch.nn.Dropout(0.1)
-
-#         self.fc2 = torch.nn.Linear(128, 64)
-#         self.dropout2 = torch.nn.Dropout(0.1)
-
-#         self.fc3 = torch.nn.Linear(64, 64)
-#         self.dropout3 = torch.nn.Dropout(0.1)
-
-#         self.fc4 = torch.nn.Linear(64, num_classes)
-
-#         # self.sigmoid = torch.nn.Sigmoid()
-
-#     def forward(self, x):
-#         x = self.pool1(self.relu1(self.conv1(x)))
-#         x = self.pool2(self.relu2(self.conv2(x)))
-#         x = self.flat(x)
-#         x = self.fc1(x)
-#         x = self.dropout1(x)
-#         x = self.fc2(x)
-#         x = self.dropout2(x)
-#         x = self.fc3(x)
-#         x = self.dropout3(x)
-#         x = self.fc4(x)
-#         # x = self.sigmoid(x)
-#         return x
-
-
 class EEG_CNN(keras.Model):
     def __init__(self, num_channels, num_classes):
         super(EEG_CNN, self).__init__()
 
         # Blok Konvolusi Pertama
         self.conv1 = layers.Conv2D(
-            64, kernel_size=10, strides=1, activation='relu')
+            64, kernel_size=3, strides=1, activation='relu', padding='same')
         self.pool1 = layers.MaxPool2D(pool_size=2, strides=2)
 
         # Blok Konvolusi Kedua
         self.conv2 = layers.Conv2D(
-            128, kernel_size=10, strides=1, activation='relu')
+            128, kernel_size=3, strides=1, activation='relu', padding='same')
         self.pool2 = layers.MaxPool2D(pool_size=2, strides=2)
 
         # Lapisan Flatten
@@ -138,6 +75,7 @@ class EEG_CNN(keras.Model):
         self.dropout3 = layers.Dropout(0.1)
 
         # Lapisan Output
+        # num_classes harus 2 untuk one-hot
         self.fc4 = layers.Dense(num_classes)
 
     def call(self, x):
@@ -170,16 +108,18 @@ class StressCapsuleLayer(layers.Layer):
             initializer='glorot_uniform', name='W_transformation')
 
     def call(self, inputs):
-        # ... (isi fungsi call sama persis seperti kode Anda)
-        inputs_expanded = K.expand_dims(inputs, axis=2)
-        inputs_tiled = K.tile(inputs_expanded, [1, 1, self.num_capsules, 1])
-        inputs_tiled = K.expand_dims(inputs_tiled, axis=4)
+        inputs_expanded = tf.expand_dims(inputs, axis=2)
+        inputs_tiled = tf.tile(inputs_expanded, [1, 1, self.num_capsules, 1])
+        inputs_tiled = tf.expand_dims(inputs_tiled, axis=4)
+
         prediction_vectors = tf.matmul(self.W, inputs_tiled)
-        prediction_vectors = K.squeeze(prediction_vectors, axis=4)
+        prediction_vectors = tf.squeeze(prediction_vectors, axis=4)
+
         routing_logits = tf.zeros(
-            shape=(K.shape(inputs)[0], 648, self.num_capsules, 1))
+            shape=(tf.shape(inputs)[0], 648, self.num_capsules, 1))
+
         for i in range(self.routing_iterations):
-            coupling_coeffs = K.softmax(routing_logits, axis=2)
+            coupling_coeffs = tf.nn.softmax(routing_logits, axis=2)
             weighted_sum = tf.reduce_sum(
                 coupling_coeffs * prediction_vectors, axis=1, keepdims=True)
             squashed_outputs = self.squash(weighted_sum, axis=-1)
@@ -187,13 +127,12 @@ class StressCapsuleLayer(layers.Layer):
                 agreement = tf.reduce_sum(
                     prediction_vectors * squashed_outputs, axis=-1, keepdims=True)
                 routing_logits += agreement
-        return K.squeeze(squashed_outputs, axis=1)
+        return tf.squeeze(squashed_outputs, axis=1)
 
     def squash(self, vectors, axis=-1):
-        # ... (isi fungsi squash sama persis seperti kode Anda)
-        s_squared_norm = K.sum(K.square(vectors), axis, keepdims=True)
+        s_squared_norm = tf.reduce_sum(tf.square(vectors), axis, keepdims=True)
         scale = s_squared_norm / (1 + s_squared_norm) / \
-            K.sqrt(s_squared_norm + K.epsilon())
+            tf.sqrt(s_squared_norm + tf.keras.backend.epsilon())
         return scale * vectors
 
     def compute_output_shape(self, input_shape):
@@ -232,14 +171,15 @@ class CCN(keras.Model):
             capsule_dim=stress_capsule_dim
         )
 
-    def call(self, inputs):
+    def call(self, inputs, training=None):
         # Definisikan alur maju (forward pass)
         # Continuous Convolution
-        x = self.act1(self.bn1(self.conv1(inputs)))
-        x = self.act2(self.bn2(self.conv2(x)))
-        x = self.act3(self.bn3(self.conv3(x)))
-        x = self.act4(self.bn4(self.conv4(x)))
-        x = self.dropout(x)
+        # Teruskan argumen 'training' ke layer BatchNormalization dan Dropout
+        x = self.act1(self.bn1(self.conv1(inputs), training=training))
+        x = self.act2(self.bn2(self.conv2(x), training=training))
+        x = self.act3(self.bn3(self.conv3(x), training=training))
+        x = self.act4(self.bn4(self.conv4(x), training=training))
+        x = self.dropout(x, training=training)
 
         # Primary Capsule
         x = self.reshape_primary(x)
@@ -293,7 +233,6 @@ def knn_classification(train_data, test_data, train_labels, test_labels):
 
 
 def knn(data, label):
-    """Fungsi KNN sederhana untuk evaluasi fitness di Algoritma Genetika."""
     X_train, X_test, y_train, y_test = train_test_split(
         data, label, test_size=0.2, random_state=42)
     scaler = StandardScaler()
@@ -362,363 +301,3 @@ def svm_classification(train_data, test_data, train_labels, test_labels):
 
     conf_matrix = metrics.confusion_matrix(y_true, y_pred)
     m.plot_conf_matrix_and_stats(conf_matrix)
-
-
-# def svm_classification_SAM40(train_data, test_data, SAM40_data, train_labels, test_labels, SAM40_labels):
-#     param_grid = {
-#         'C': [0.001, 0.01, 0.1, 1, 10, 100, 1000, 10000, 100000, 1000000],
-#         'kernel': ['linear', 'poly', 'rbf', 'sigmoid']
-#     }
-#     print('Scaling␣training␣and␣testing␣data')
-#     scaler = RobustScaler()
-#     train_data = scaler.fit_transform(train_data)
-#     test_data = scaler.transform(test_data)
-
-#     print('Scaling␣SAM40␣data')
-#     SAM40_scaler = RobustScaler()
-#     SAM40_data = SAM40_scaler.fit_transform(SAM40_data)
-
-#     print('Finding␣the␣best␣model')
-#     svm_clf = GridSearchCV(SVC(), param_grid, refit=True, n_jobs=-1, cv=10)
-#     svm_clf.fit(train_data, train_labels)
-
-#     print(svm_clf.best_estimator_)
-#     print(svm_clf.best_params_)
-
-#     print('Predicting␣on␣test␣data')
-#     y_pred = svm_clf.predict(test_data)
-#     y_true = test_labels
-
-#     # fit the grid search to get the results
-#     results = svm_clf.cv_results_
-
-#     # extract the relevant scores
-#     C_values = results['param_C'].data
-#     kernel_values = results['param_kernel'].data
-#     accuracies = results['mean_test_score']
-
-#     print('Number␣of␣results:', len(accuracies))
-#     # print(’C_values:’, C_values)
-#     # print(’kernel_values:’, kernel_values)
-#     print('accuracies:', accuracies)
-#     # plot the results
-#     plt.figure(2)
-#     plt.plot(
-#         range(len(accuracies)), accuracies
-#     )
-#     plt.xlabel('Iteration')
-#     plt.ylabel('Accuracy')
-#     plt.show()
-
-#     conf_matrix = metrics.confusion_matrix(y_true, y_pred)
-#     m.plot_conf_matrix_and_stats(conf_matrix)
-
-#     # SAM40
-#     print('Predicting␣on␣SAM40␣data')
-#     y_pred_SAM40 = svm_clf.predict(SAM40_data)
-#     y_true_SAM40 = SAM40_labels
-#     conf_matrix_SAM40 = metrics.confusion_matrix(y_true_SAM40, y_pred_SAM40)
-#     m.plot_conf_matrix_and_stats(conf_matrix_SAM40)
-
-
-# def kfold_EEGNet_classification(train_data, test_data, train_labels, test_labels, n_folds, data_type, epoched=True):
-#     if epoched:
-#         if data_type == 'new_ica':
-#             model = EEGNet(nb_classes=2, Chans=v.NUM_CHANNELS,
-#                            Samples=v.EPOCH_LENGTH*v.NEW_SFREQ,
-#                            dropoutRate=0.5, kernLength=32, F1=8,
-#                            D=2, F2=16, dropoutType='Dropout')
-#         else:
-#             model = EEGNet(nb_classes=2, Chans=v.NUM_CHANNELS,
-#                            Samples=v.EPOCH_LENGTH*v.SFREQ,
-#                            dropoutRate=0.5, kernLength=32, F1=8,
-#                            D=2, F2=16, dropoutType='Dropout')
-#     else:  # if not epoched
-#         if data_type == 'new_ica':
-#             model = EEGNet(nb_classes=2, Chans=v.NUM_CHANNELS,
-#                            Samples=v.NEW_NUM_SAMPLES,
-#                            dropoutRate=0.5, kernLength=32, F1=8,
-#                            D=2, F2=16, dropoutType='Dropout')
-#         else:
-#             model = EEGNet(nb_classes=2, Chans=v.NUM_CHANNELS,
-#                            Samples=v.NUM_SAMPLES,
-#                            dropoutRate=0.5, kernLength=32, F1=8,
-#                            D=2, F2=16, dropoutType='Dropout')
-
-#     model.compile(loss='sparse_categorical_crossentropy',
-#                   optimizer='adam', metrics=['accuracy'])
-
-#     numParams = model.count_params()
-#     checkpointer = ModelCheckpoint(
-#         filepath='/tmp/checkpoint.h5', verbose=1, save_best_only=True)
-
-#     class_weights = {0: 1, 1: 3}
-
-#     # Split into k-folds
-#     skf = StratifiedKFold(n_splits=n_folds)
-#     total_accuracy = 0
-
-#     for fold, (train_index, val_index) in enumerate(skf.split(train_data, train_labels)):
-#         print(f"\nFold␣nr:␣{fold+1}")
-#         train_data_fold = train_data[train_index]
-#         train_labels_fold = train_labels[train_index]
-#         val_data_fold = train_data[val_index]
-#         val_labels_fold = train_labels[val_index]
-
-#         history = model.fit(train_data_fold, train_labels_fold, batch_size=None, epochs=30, verbose=2, validation_data=(
-#             val_data_fold, val_labels_fold), callbacks=[checkpointer], class_weight=class_weights)
-
-#         # load optimal weights
-#         model.load_weights('/tmp/checkpoint.h5')
-
-#         probs = model.predict(test_data)
-#         preds = probs.argmax(axis=-1)
-#         conf_matrix = metrics.confusion_matrix(test_labels, preds)
-#         m.plot_conf_matrix_and_stats(conf_matrix)
-
-#         # Plot Loss/Accuracy over time
-#         # Create figure with secondary y-axis
-#         fig = p.make_subplots(specs=[[{"secondary_y": True}]])
-#         # Add traces
-#         fig.add_trace(go.Scatter(
-#             y=history.history['val_loss'], name="val_loss"), secondary_y=False)
-#         fig.add_trace(go.Scatter(
-#             y=history.history['loss'], name="loss"), secondary_y=False)
-#         fig.add_trace(go.Scatter(
-#             y=history.history['val_accuracy'], name="val␣accuracy"), secondary_y=True)
-#         fig.add_trace(go.Scatter(
-#             y=history.history['accuracy'], name="accuracy"), secondary_y=True)
-
-#         # Add figure title
-#         fig.update_layout(title_text="Loss/Accuracy of k-folds EEGNet")
-#         # Set x-axis title
-#         fig.update_xaxes(title_text="Epoch")
-#         # Set y-axes titles
-#         fig.update_yaxes(title_text="Loss", secondary_y=False)
-#         fig.update_yaxes(title_text="Accuracy", secondary_y=True)
-#         fig.show()
-
-
-# def kfold_TSGL_classification(train_data, test_data, train_labels, test_labels, n_folds, data_type, epoched=True):
-#     if epoched:
-#         if data_type == 'new_ica':
-#             model = TSGLEEGNet(nb_classes=2, Chans=v.NUM_CHANNELS, Samples=v.EPOCH_LENGTH * v.NEW_SFREQ,
-#                                dropoutRate=0.5, kernLength=128, F1=96, D=1, F2=96, dropoutType='Dropout')
-#         else:
-#             model = TSGLEEGNet(nb_classes=2, Chans=v.NUM_CHANNELS, Samples=v.EPOCH_LENGTH *
-#                                v.SFREQ, dropoutRate=0.5, kernLength=128, F1=96, D=1, F2=96, dropoutType='Dropout')
-#     else:  # if not epoched
-#         if data_type == 'new_ica':
-#             model = TSGLEEGNet(nb_classes=2, Chans=v.NUM_CHANNELS, Samples=v.NEW_NUM_SAMPLES,
-#                                dropoutRate=0.5, kernLength=128, F1=96, D=1, F2=96, dropoutType='Dropout')
-#         else:
-#             model = TSGLEEGNet(nb_classes=2, Chans=v.NUM_CHANNELS, Samples=v.NUM_SAMPLES,
-#                                dropoutRate=0.5, kernLength=128, F1=96, D=1, F2=96, dropoutType='Dropout')
-
-#     # compile the model and set the optimizers
-#     model.compile(loss='sparse_categorical_crossentropy',
-#                   optimizer='adam', metrics=['accuracy'])
-
-#     # count number of parameters in the model
-#     numParams = model.count_params()
-
-#     # set a valid path for your system to record model checkpoints
-#     checkpointer = ModelCheckpoint(
-#         filepath='/tmp/checkpoint.h5', verbose=1, save_best_only=True)
-#     class_weights = {0: 1, 1: 3}
-
-#     # Split into k-folds
-#     skf = StratifiedKFold(n_splits=n_folds)
-#     for fold, (train_index, val_index) in enumerate(skf.split(train_data, train_labels)):
-#         print(f"\nFold␣nr:␣{fold+1}")
-#         train_data_fold = train_data[train_index]
-#         train_labels_fold = train_labels[train_index]
-#         val_data_fold = train_data[val_index]
-#         val_labels_fold = train_labels[val_index]
-
-#         history = model.fit(train_data_fold, train_labels_fold, batch_size=None, epochs=30, verbose=2, validation_data=(
-#             val_data_fold, val_labels_fold), callbacks=[checkpointer], class_weight=class_weights)
-
-#     # load optimal weights
-#     model.load_weights('/tmp/checkpoint.h5')
-
-#     probs = model.predict(test_data)
-#     preds = probs.argmax(axis=-1)
-
-#     conf_matrix = metrics.confusion_matrix(test_labels, preds)
-#     m.plot_conf_matrix_and_stats(conf_matrix)
-
-#     # Plot Loss/Accuracy over time
-#     # Create figure with secondary y-axis
-#     fig = p.make_subplots(specs=[[{"secondary_y": True}]])
-#     # Add traces
-#     fig.add_trace(go.Scatter(
-#         y=history.history['val_loss'], name="val_loss"), secondary_y=False)
-#     fig.add_trace(go.Scatter(
-#         y=history.history['loss'], name="loss"), secondary_y=False)
-#     fig.add_trace(go.Scatter(
-#         y=history.history['val_accuracy'], name="val␣accuracy"), secondary_y=True)
-#     fig.add_trace(go.Scatter(
-#         y=history.history['accuracy'], name="accuracy"), secondary_y=True)
-
-#     # Add figure title
-#     fig.update_layout(title_text="Loss/Accuracy of k-folds EEGNet")
-#     # Set x-axis title
-#     fig.update_xaxes(title_text="Epoch")
-#     # Set y-axes titles
-#     fig.update_yaxes(title_text="Loss", secondary_y=False)
-#     fig.update_yaxes(title_text="Accuracy", secondary_y=True)
-#     fig.show()
-
-
-# def kfold_DeepConvNet_classification(train_data, test_data, train_labels, test_labels, n_folds, data_type, epoched=True):
-#     if epoched:
-#         if data_type == 'new_ica':
-#             model = DeepConvNet(nb_classes=2, Chans=v.NUM_CHANNELS,
-#                                 Samples=v.EPOCH_LENGTH * v.NEW_SFREQ,
-#                                 dropoutRate=0.5)
-#         else:
-#             model = DeepConvNet(nb_classes=2, Chans=v.NUM_CHANNELS,
-#                                 Samples=v.EPOCH_LENGTH * v.SFREQ,
-#                                 dropoutRate=0.5)
-#     else:  # if not epoched
-#         if data_type == 'new_ica':
-#             model = DeepConvNet(nb_classes=2, Chans=v.NUM_CHANNELS,
-#                                 Samples=v.NEW_NUM_SAMPLES,
-#                                 dropoutRate=0.5)
-#         else:
-#             model = DeepConvNet(nb_classes=2, Chans=v.NUM_CHANNELS,
-#                                 Samples=v.NUM_SAMPLES,
-#                                 dropoutRate=0.5)
-
-#     # compile the model and set the optimizers
-#     model.compile(loss='sparse_categorical_crossentropy', optimizer='adam',
-#                   metrics=['accuracy'])
-
-#     # count number of parameters in the model
-#     numParams = model.count_params()
-
-#     # set a valid path for your system to record model checkpoints
-#     checkpointer = ModelCheckpoint(filepath='/tmp/checkpoint.h5', verbose=1,
-#                                    save_best_only=True)
-
-#     class_weights = {0: 1, 1: 3}
-
-#     # Split into k-folds
-#     skf = StratifiedKFold(n_splits=n_folds)
-#     for fold, (train_index, val_index) in enumerate(
-#             skf.split(train_data, train_labels)):
-#         print(f"\nFold␣nr:␣{fold+1}")
-#         train_data_fold = train_data[train_index]
-#         train_labels_fold = train_labels[train_index]
-#         val_data_fold = train_data[val_index]
-#         val_labels_fold = train_labels[val_index]
-
-#         history = model.fit(train_data_fold, train_labels_fold, batch_size=None,
-#                             epochs=30, verbose=2, validation_data=(val_data_fold, val_labels_fold), callbacks=[checkpointer], class_weight=class_weights)
-
-#     # load optimal weights
-#     model.load_weights('/tmp/checkpoint.h5')
-#     probs = model.predict(test_data)
-#     preds = probs.argmax(axis=-1)
-
-#     conf_matrix = metrics.confusion_matrix(test_labels, preds)
-#     m.plot_conf_matrix_and_stats(conf_matrix)
-
-#     # Plot Loss/Accuracy over time
-#     #  Create figure with secondary y-axis
-#     fig = p.make_subplots(specs=[[{"secondary_y": True}]])
-#     # Add traces
-#     fig.add_trace(go.Scatter(y=history.history['val_loss'], name="val_loss"),
-#                   secondary_y=False)
-#     fig.add_trace(go.Scatter(y=history.history['loss'], name="loss"),
-#                   secondary_y=False)
-#     fig.add_trace(go.Scatter(y=history.history['val_accuracy'],
-#                              name="val␣accuracy"), secondary_y=True)
-#     fig.add_trace(go.Scatter(y=history.history['accuracy'],
-#                              name="accuracy"), secondary_y=True)
-
-#     # Add figure title
-#     fig.update_layout(title_text="Loss/Accuracy of k-folds EEGNet")
-#     # Set x-axis title
-#     fig.update_xaxes(title_text="Epoch")
-#     # Set y-axes titles
-#     fig.update_yaxes(title_text="Loss", secondary_y=False)
-#     fig.update_yaxes(title_text="Accuracy", secondary_y=True)
-#     fig.show()
-
-
-# def kfold_ShallowConvNet_classification(train_data, test_data, train_labels,
-#                                         test_labels, n_folds, data_type,
-#                                         epoched=True):
-#     if epoched:
-#         if data_type == 'new_ica':
-#             model = ShallowConvNet(nb_classes=2, Chans=v.NUM_CHANNELS,
-#                                    Samples=v.EPOCH_LENGTH * v.NEW_SFREQ,
-#                                    dropoutRate=0.5)
-#         else:
-#             model = ShallowConvNet(nb_classes=2, Chans=v.NUM_CHANNELS,
-#                                    Samples=v.EPOCH_LENGTH*v.SFREQ,
-#                                    dropoutRate=0.5)
-#     else:  # if not epoched
-#         if data_type == 'new_ica':
-#             model = ShallowConvNet(nb_classes=2, Chans=v.NUM_CHANNELS,
-#                                    Samples=v.NEW_NUM_SAMPLES,
-#                                    dropoutRate=0.5)
-#         else:
-#             model = ShallowConvNet(nb_classes=2, Chans=v.NUM_CHANNELS,
-#                                    Samples=v.NUM_SAMPLES,
-#                                    dropoutRate=0.5)
-
-#     # compile the model and set the optimizers
-#     model.compile(loss='sparse_categorical_crossentropy', optimizer='adam',
-#                   metrics=['accuracy'])
-#     # count number of parameters in the model
-#     numParams = model.count_params()
-#     # set a valid path for your system to record model checkpoints
-#     checkpointer = ModelCheckpoint(filepath='/tmp/checkpoint.h5', verbose=1,
-#                                    save_best_only=True)
-
-#     class_weights = {0: 1, 1: 3}
-
-#     # Split into k-folds
-#     skf = StratifiedKFold(n_splits=n_folds)
-#     for fold, (train_index, val_index) in enumerate(skf.split(
-#             train_data, train_labels)):
-#         print(f"\nFold␣nr:␣{fold+1}")
-#         train_data_fold = train_data[train_index]
-#         train_labels_fold = train_labels[train_index]
-#         val_data_fold = train_data[val_index]
-#         val_labels_fold = train_labels[val_index]
-
-#         history = model.fit(train_data_fold, train_labels_fold, batch_size=None,
-#                             epochs=30, verbose=2, validation_data=(val_data_fold, val_labels_fold), callbacks=[checkpointer], class_weight=class_weights)
-
-#     # load optimal weights
-#     model.load_weights('/tmp/checkpoint.h5')
-#     probs = model.predict(test_data)
-#     preds = probs.argmax(axis=-1)
-
-#     conf_matrix = metrics.confusion_matrix(test_labels, preds)
-#     m.plot_conf_matrix_and_stats(conf_matrix)
-
-#     # Plot Loss/Accuracy over time
-#     # Create figure with secondary y-axis
-#     fig = p.make_subplots(specs=[[{"secondary_y": True}]])
-#     # Add traces
-#     fig.add_trace(go.Scatter(y=history.history['val_loss'], name="val_loss"),
-#                   secondary_y=False)
-#     fig.add_trace(go.Scatter(y=history.history['loss'], name="loss"),
-#                   secondary_y=False)
-#     fig.add_trace(go.Scatter(y=history.history['val_accuracy'],
-#                              name="val␣accuracy"), secondary_y=True)
-#     fig.add_trace(go.Scatter(y=history.history['accuracy'], name="accuracy"),
-#                   secondary_y=True)
-#     # Add figure title
-#     fig.update_layout(title_text="Loss/Accuracy of k-folds EEGNet")
-#     # Set x-axis title
-#     fig.update_xaxes(title_text="Epoch")
-#     # Set y-axes titles
-#     fig.update_yaxes(title_text="Loss", secondary_y=False)
-#     fig.update_yaxes(title_text="Accuracy", secondary_y=True)
-#     fig.show()

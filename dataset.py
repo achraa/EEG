@@ -54,6 +54,7 @@ def load_labels():
     labels = pd.read_excel(v.LABELS_PATH)
     labels = labels.rename(columns=v.COLUMNS_TO_RENAME)
     labels = labels[1:]
+    labels = labels.reset_index(drop=True)
     labels = labels.astype("int")
     labels = labels > 5
     return labels

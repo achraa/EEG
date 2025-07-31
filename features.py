@@ -5,26 +5,6 @@ import matplotlib.pyplot as plt
 from scipy.interpolate import griddata
 
 
-# def hjorth_features(data, n_genes, sfreq):
-#     """
-#     Menghitung parameter Hjorth (Activity, Mobility, Complexity).
-#     Bentuk input data: (n_epochs, n_channels, n_times)
-#     """
-#     # mne_features mengharapkan input (n_epochs, n_channels, n_times)
-
-#     # Activity adalah varians dari sinyal
-#     activity = np.var(data, axis=2)  # (n_epochs, n_channels)
-
-#     # Mobility dan Complexity menggunakan mne_features
-#     mobility = mne_f.compute_hjorth_mobility(data)  # (n_epochs, n_channels)
-#     complexity = mne_f.compute_hjorth_complexity(
-#         data)  # (n_epochs, n_channels)
-
-#     # Gabungkan semua fitur. Kita ratakan (flatten) per epoch.
-#     # Hasilnya akan menjadi (n_epochs, n_channels * 3)
-#     features = np.hstack([activity, mobility, complexity])
-#     return features
-
 def hjorth_features(data):
     """
     Menghitung parameter Hjorth (Activity, Mobility, Complexity) secara manual
@@ -82,32 +62,6 @@ def decompose_to_bands(mne_objects_dict):
         decomposed_dict[name] = bands
 
     return decomposed_dict
-
-# def freq_band_features(data, freq_bands):
-#     """
-#     Frequency band feature extraction function.
-#     Computes the frequency bands tetha, alpha, beta, and gamma using the package mne_features.
-#     Args:
-#         data (numpy.ndarray): data EEG (The input data with shape (n_trials, n_secs, n_channels, sfreq))
-#         freq_bands (list): A list of frequency bands to compute features for
-#                            Example: [[4, 8], [8, 12], [12, 30], [30, 50]] for theta, alpha, beta, gamma.
-#     Returns:
-#         features (list): A list of extracted features.
-#     """
-#     n_trials, n_secs, n_channels, sfreq = data.shape
-#     features_per_channel = len(freq_bands) - 1
-
-#     features = np.empty([n_trials, n_secs, n_channels * features_per_channel])
-#     for i, trial in enumerate(data):
-#         for j, second in enumerate(trial):
-#             psd = mne_f.compute_pow_freq_bands(
-#                 sfreq, second, freq_bands=freq_bands
-#             )
-#             features[i][j] = psd
-#     features = features.reshape(
-#         [n_trials * n_secs, n_channels * features_per_channel]
-#     )
-#     return features
 
 
 def _calculate_de_windowed(decomposed_data, window_size_sec=1):
@@ -190,103 +144,38 @@ def differential_entropy_features(decomposed_data, band_order=['Theta', 'Alpha',
     return eeg_features_baselined
 
 
-# def create_3d_feature_maps(feature_vectors_dict, montage_path, selected_channels_list, grid_resolution=9, band_order=['Theta', 'Alpha', 'Beta', 'Gamma']):
-#     """
-#     Mengubah vektor fitur 1D menjadi peta fitur 3D (grid_w, grid_h, n_bands)
-#     melalui interpolasi berdasarkan posisi kanal.
-#     """
-#     montage = mne.channels.read_custom_montage(montage_path)
-#     # ch_names = montage.ch_names # ini sesuai dataset 32 channels
-#     ch_positions = montage.get_positions()['ch_pos']
-#     ch_positions_subset = {
-#         ch: pos for ch,
-#         pos in ch_positions.items()
-#         if ch in selected_channels_list}
-
-#     # Buat grid untuk interpolasi
-#     x_coords = [pos[0] for pos in ch_positions.values()]
-#     y_coords = [pos[1] for pos in ch_positions.values()]
-#     grid_x, grid_y = np.mgrid[min(x_coords):max(x_coords):complex(grid_resolution),
-#                               min(y_coords):max(y_coords):complex(grid_resolution)]
-
-#     points = np.array([list(pos[:2]) for pos in ch_positions.values()])
-#     # n_channels = len(ch_names) # ini dataset awal 32 channels
-#     n_channels = len(selected_channels_list)
-#     n_bands = len(band_order)
-
-#     feature_maps_3d = {}
-#     for key, vector in feature_vectors_dict.items():
-#         # Reshape vektor 1D kembali ke (n_bands, n_channels)
-#         features_by_band = vector.reshape(n_bands, n_channels)
-
-#         interpolated_bands = []
-#         for i in range(n_bands):
-#             values = features_by_band[i]
-#             # Interpolasi nilai fitur ke grid 2D
-#             grid_z = griddata(points, values, (grid_x, grid_y),
-#                               method='cubic', fill_value=0)
-#             # Transpose untuk orientasi yang benar
-#             interpolated_bands.append(grid_z.T)
-
-#         # Tumpuk hasil interpolasi band menjadi kubus 3D
-#         feature_maps_3d[key] = np.stack(interpolated_bands, axis=-1)
-
-#     return feature_maps_3d
-
 def create_3d_feature_maps(feature_vectors_dict, montage_path, selected_channels_list, grid_resolution=9, band_order=['Theta', 'Alpha', 'Beta', 'Gamma']):
     montage = mne.channels.read_custom_montage(montage_path)
     full_ch_positions = montage.get_positions()['ch_pos']
 
-    # Dapatkan daftar channel yang valid (unik DAN ada di file montage)
-    unique_selected_channels = set(selected_channels_list)
-    valid_channels = sorted(
-        [ch for ch in unique_selected_channels if ch in full_ch_positions])
+    # Mengambil posisi HANYA untuk channel yang terpilih, dengan urutan yang sama seperti di selected_channels_list
+    points = np.array([full_ch_positions[ch][:2]
+                      for ch in selected_channels_list if ch in full_ch_positions])
 
-    # Dapatkan posisi HANYA untuk channel yang benar-benar valid
-    ch_positions_subset = {ch: full_ch_positions[ch] for ch in valid_channels}
-    points = np.array([list(pos[:2]) for pos in ch_positions_subset.values()])
+    # Buat grid interpolasi
+    x_coords = points[:, 0]
+    y_coords = points[:, 1]
+    grid_x, grid_y = np.mgrid[min(x_coords):max(x_coords):complex(grid_resolution),
+                              min(y_coords):max(y_coords):complex(grid_resolution)]
 
-    n_channels = len(valid_channels)
+    n_channels = len(points)
     n_bands = len(band_order)
-
     expected_feature_size = n_bands * n_channels
 
     feature_maps_3d = {}
     for key, vector in feature_vectors_dict.items():
         if vector.size != expected_feature_size:
             print(
-                f"Peringatan: Ukuran vektor fitur untuk '{key}' ({vector.size}) tidak cocok dengan yang diharapkan ({expected_feature_size}). File ini dilewati.")
+                f"Warning: Ukuran vektor fitur untuk '{key}' ({vector.size}) tidak cocok dengan yang diharapkan ({expected_feature_size}). File dilewati.")
             continue
 
         features_by_band = vector.reshape(n_bands, n_channels)
 
-        # Buat grid untuk interpolasi
-        x_coords = [pos[0] for pos in ch_positions_subset.values()]
-        y_coords = [pos[1] for pos in ch_positions_subset.values()]
-        grid_x, grid_y = np.mgrid[min(x_coords):max(x_coords):complex(grid_resolution),
-                                  min(y_coords):max(y_coords):complex(grid_resolution)]
-
-        # --- KODE DEBUGGING DITAMBAHKAN DI SINI ---
-        print(f"\n--- DEBUGGING UNTUK TASK: {key} ---")
-        print(
-            f"  Jumlah channel valid yang ditemukan di file .locs: {n_channels}")
-        print(f"  Nama channel valid (disortir): {valid_channels}")
-        print(f"  Jumlah titik koordinat (points): {len(points)}")
-
         interpolated_bands = []
-        for i, band_name in enumerate(band_order):
+        for i in range(n_bands):
             values = features_by_band[i]
-
-            print(f"    -> Memproses Band '{band_name}':")
-            print(f"       Jumlah 'values' (nilai fitur): {len(values)}")
-
-            # Cek terakhir sebelum error
-            if len(points) != len(values):
-                print(
-                    f"       !!! KETIDAKCOCOKAN DITEMUKAN: points({len(points)}) != values({len(values)}) !!!")
-
             grid_z = griddata(points, values, (grid_x, grid_y),
-                              method='cubic', fill_value=0)
+                              method='cubic', fill_value=np.mean(values))  # Menggunakan mean sebagai fill_value
             interpolated_bands.append(grid_z.T)
 
         feature_maps_3d[key] = np.stack(interpolated_bands, axis=-1)
